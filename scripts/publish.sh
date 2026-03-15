@@ -13,15 +13,14 @@ fi
 git checkout main
 git pull origin main
 
-git tag "$TAG"
-git push origin "$TAG"
-
+# Generate notes before tagging so --unreleased can find the commits
 # Prerelease: notes for just this tag's commits
 # GA release: collapse all commits since last stable tag into one section
 if [ "$PRERELEASE" = true ]; then
   NOTES=$(npx git-cliff \
     --config cliff.toml \
-    --latest \
+    --tag "$TAG" \
+    --unreleased \
     --strip header)
 else
   NOTES=$(npx git-cliff \
@@ -31,6 +30,9 @@ else
     --unreleased \
     --strip header)
 fi
+
+git tag "$TAG"
+git push origin "$TAG"
 
 MIGRATION_NOTICE="<details>
 <summary>Migrating from v1.x</summary>
