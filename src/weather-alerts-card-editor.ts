@@ -64,7 +64,18 @@ export class WeatherAlertsCardEditor extends LitElement {
   private _entityChanged(ev: CustomEvent): void {
     const entity = ev.detail.value as string;
     if (entity === this._config.entity) return;
-    this._fireConfigChanged({ ...this._config, entity });
+    const newConfig: WeatherAlertsCardConfig = { ...this._config, entity };
+    // Update visibility condition entity reference if hideNoAlerts is active
+    if (newConfig.hideNoAlerts) {
+      // Remove old entity condition, then add new one
+      const stripped = this._syncVisibilityCondition(
+        newConfig.visibility,
+        this._config.entity,
+        false,
+      );
+      newConfig.visibility = this._syncVisibilityCondition(stripped, entity, true);
+    }
+    this._fireConfigChanged(newConfig);
   }
 
   private _titleChanged(ev: Event): void {
@@ -144,6 +155,50 @@ export class WeatherAlertsCardEditor extends LitElement {
       newConfig.showSourceLink = false;
     }
     this._fireConfigChanged(newConfig);
+  }
+
+  private _hideNoAlertsChanged(ev: Event): void {
+    const target = ev.target as HTMLInputElement;
+    const hide = target.checked;
+    if (hide === (this._config.hideNoAlerts === true)) return;
+    const newConfig: WeatherAlertsCardConfig = { ...this._config };
+    if (hide) {
+      newConfig.hideNoAlerts = true;
+    } else {
+      delete newConfig.hideNoAlerts;
+    }
+    // Sync HA's native visibility conditions so the dashboard layout
+    // fully removes the card (no residual gap) when there are no alerts.
+    newConfig.visibility = this._syncVisibilityCondition(
+      newConfig.visibility,
+      newConfig.entity,
+      hide,
+    );
+    this._fireConfigChanged(newConfig);
+  }
+
+  /**
+   * Add or remove our managed visibility condition.
+   * Preserves any user-defined conditions already present.
+   */
+  private _syncVisibilityCondition(
+    existing: Record<string, unknown>[] | undefined,
+    entity: string,
+    add: boolean,
+  ): Record<string, unknown>[] | undefined {
+    const isOurs = (c: Record<string, unknown>): boolean =>
+      c.condition === 'state' && c.entity === entity
+      && ('state_not' in c || 'state' in c);
+    const conditions = (existing || []).filter(c => !isOurs(c));
+    if (add) {
+      // binary_sensor (MeteoAlarm) uses "on"/"off"; sensors use numeric count "0","1",...
+      if (entity.startsWith('binary_sensor.')) {
+        conditions.push({ condition: 'state', entity, state: 'on' });
+      } else {
+        conditions.push({ condition: 'state', entity, state_not: '0' });
+      }
+    }
+    return conditions.length > 0 ? conditions : undefined;
   }
 
   private _layoutChanged(ev: Event): void {
@@ -383,6 +438,13 @@ export class WeatherAlertsCardEditor extends LitElement {
           <ha-switch
             .checked=${this._config.showSourceLink !== false}
             @change=${this._showSourceLinkChanged}
+          ></ha-switch>
+        </ha-formfield>
+
+        <ha-formfield .label=${t('editor.hide_no_alerts', lang)}>
+          <ha-switch
+            .checked=${this._config.hideNoAlerts === true}
+            @change=${this._hideNoAlertsChanged}
           ></ha-switch>
         </ha-formfield>
 
